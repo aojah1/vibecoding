@@ -693,11 +693,100 @@ export function setupChatbotEndpoints(app) {
     }
   });
 
+  // --------------------------------------------------------------------------
+  // GET /api/claims/adjusters - Distinct adjusters (by name) available to assign
+  // Combines ADJUSTERS master with any adjuster IDs referenced in CLAIMS
+  // Falls back to ORDS if direct DB join is unavailable
+  // --------------------------------------------------------------------------
+  app.get('/api/claims/adjusters', async (req, res) => {
+    try {
+      // Try direct DB first (if ADJUSTERS table exists)
+      try {
+        const sql = `
+          WITH from_claims AS (
+            SELECT DISTINCT ASSIGNED_ADJUSTER_ID AS ADJUSTER_ID
+            FROM CLAIMS
+            WHERE ASSIGNED_ADJUSTER_ID IS NOT NULL
+          )
+          SELECT a.ADJUSTER_ID, (a.FIRST_NAME || ' ' || a.LAST_NAME) AS NAME
+          FROM ADJUSTERS a
+          UNION
+          SELECT fc.ADJUSTER_ID, COALESCE((a2.FIRST_NAME || ' ' || a2.LAST_NAME), fc.ADJUSTER_ID) AS NAME
+          FROM from_claims fc
+          LEFT JOIN ADJUSTERS a2 ON a2.ADJUSTER_ID = fc.ADJUSTER_ID
+        `;
+        const db = await run(sql);
+        const rows = db?.rows || [];
+        if (rows.length) {
+          const adjusters = rows
+            .map(r => ({ id: r.ADJUSTER_ID, name: r.NAME || r.ADJUSTER_ID }))
+            .filter(a => a.id);
+          adjusters.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+          return res.json({ success: true, adjusters });
+        }
+      } catch (dbErr) {
+        console.warn('[Claims API] Adjusters DB query failed, falling back to ORDS:', dbErr.message);
+      }
+
+      // Fallback: Use ORDS AutoREST to merge master adjusters + referenced in claims
+      const ORDS_BASE_URL = process.env.ORDS_BASE_URL || 'https://gde727daa9b60fb-vibecoding.adb.us-chicago-1.oraclecloudapps.com/ords/admin';
+
+      // Load adjusters master (for names)
+      let nameById = new Map();
+      try {
+        const adjResp = await fetch(`${ORDS_BASE_URL}/adjusters/?offset=0&limit=1000`);
+        if (adjResp.ok) {
+          const adjData = await adjResp.json();
+          const adjItems = adjData.items || [];
+            nameById = new Map(
+              adjItems
+                .map(a => {
+                  const id = a.ADJUSTER_ID || a.adjuster_id || a.ID || a.id;
+                  const first = (a.FIRST_NAME || a.first_name || '').toString().trim();
+                  const last = (a.LAST_NAME || a.last_name || '').toString().trim();
+                  const composed = `${first} ${last}`.trim();
+                  const name = composed || (a.NAME || a.name || a.displayName || id || '').toString();
+                  return [id, name];
+                })
+                .filter(([id]) => !!id)
+            );
+        } else {
+          console.warn('[Claims API] ORDS /adjusters not available:', adjResp.status);
+        }
+      } catch (e) {
+        console.warn('[Claims API] ORDS load adjusters failed:', e.message);
+      }
+
+      // Load claims to capture any additional adjuster IDs in use
+      const claimsResp = await fetch(`${ORDS_BASE_URL}/claims/?offset=0&limit=1000`);
+      if (!claimsResp.ok) {
+        const t = await claimsResp.text().catch(() => '');
+        throw new Error(`ORDS /claims failed ${claimsResp.status}: ${t}`);
+      }
+      const claimsData = await claimsResp.json();
+      const claimItems = claimsData.items || [];
+      const idsFromClaims = new Set(
+        claimItems.map(c => c.ASSIGNED_ADJUSTER_ID || c.assigned_adjuster_id).filter(Boolean)
+      );
+
+      const unionIds = new Set([...nameById.keys(), ...idsFromClaims]);
+      const adjusters = [...unionIds]
+        .map(id => ({ id, name: nameById.get(id) || id }))
+        .sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+      return res.json({ success: true, adjusters });
+    } catch (error) {
+      console.error('[Claims API] Failed to build adjusters list:', error.message);
+      return res.status(500).json({ success: false, message: 'Failed to fetch adjusters' });
+    }
+  });
+
   console.log('✅ Chatbot endpoints configured:');
   console.log('   POST   /api/claims/submit');
   console.log('   GET    /api/claims-chatbot');
   console.log('   GET    /api/claims/status/:claimNumber');
   console.log('   GET    /api/claims/files/:filename');
+  console.log('   GET    /api/claims/adjusters');
   console.log('   PATCH  /api/claims/:id');
   console.log('════════════════════════════════════════\n');
 }
