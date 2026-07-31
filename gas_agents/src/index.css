@@ -1,0 +1,39 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-slate-950 text-white font-sans m-0;
+  }
+  #root {
+    @apply w-full min-h-screen;
+  }
+}
+
+@layer components {
+  .hud-panel {
+    @apply bg-slate-800 border border-slate-700 rounded-xl p-4;
+  }
+  .bid-card {
+    @apply bg-slate-700 border border-slate-600 rounded-lg p-3 hover:border-amber-400 transition-colors cursor-pointer;
+  }
+}
+
+@keyframes radar-ring {
+  0% { transform: scale(0.8); opacity: 0.8; }
+  100% { transform: scale(2.8); opacity: 0; }
+}
+.radar-ring {
+  animation: radar-ring 2.5s ease-out infinite;
+}
+.radar-ring-2 {
+  animation: radar-ring 2.5s ease-out 0.8s infinite;
+}
+.radar-ring-3 {
+  animation: radar-ring 2.5s ease-out 1.6s infinite;
+}
+
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: #1e293b; }
+::-webkit-scrollbar-thumb { background: #475569; border-radius: 2px; }

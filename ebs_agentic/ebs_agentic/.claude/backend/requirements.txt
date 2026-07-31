@@ -1,0 +1,12 @@
+# Python dependencies for FastMCP Server with SQLcl MCP Client
+# Install with: pip install -r requirements.txt
+
+# FastMCP framework
+fastmcp>=0.2.0
+
+# MCP SDK for connecting to SQLcl MCP as a client
+mcp>=1.0.0
+
+# Optional: For better logging and async support
+colorama>=0.4.6
+asyncio>=3.4.3
